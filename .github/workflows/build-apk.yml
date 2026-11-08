@@ -1,0 +1,51 @@
+name: Build VOID DPI APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'void-dpi.zip'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack project
+        run: |
+          unzip -q void-dpi.zip -d work
+          echo "PROJECT=$(find work -maxdepth 2 -name gradlew -printf '%h\n' | head -1)" >> "$GITHUB_ENV"
+
+      - name: Fetch native sources
+        working-directory: ${{ env.PROJECT }}
+        run: |
+          rm -rf app/src/main/cpp/byedpi app/src/main/jni/hev-socks5-tunnel
+          git clone https://github.com/hufrea/byedpi.git app/src/main/cpp/byedpi
+          git -C app/src/main/cpp/byedpi checkout ba53229 || echo "::warning::ba53229 not found, using latest byedpi"
+          git clone --recursive https://github.com/heiher/hev-socks5-tunnel.git app/src/main/jni/hev-socks5-tunnel
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        working-directory: ${{ env.PROJECT }}
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee ../build.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: void-dpi-apk
+          path: ${{ env.PROJECT }}/app/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: work/build.log
